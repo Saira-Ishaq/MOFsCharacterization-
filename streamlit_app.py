@@ -161,19 +161,35 @@ def MOF_style_simulation(params, voltage_range=(0.0, 0.6), time_range_max=500):
     
     for current in current_densities:
         # Calculate discharge time based on capacity
-        max_time = min((base_capacity * capacity_mult) / (current * 60), time_range_max)
-        time = np.linspace(0, max_time, 200)
+        # Ensure total cycle (charge + discharge) fits within time_range_max
+        discharge_duration = min((base_capacity * capacity_mult) / (current * 60), time_range_max / 2)
         
-        # Voltage decay (exponential) - discharge curve only
+        # Charge phase (0 to discharge_duration)
+        t_charge = np.linspace(0, discharge_duration, 100)
+        # Discharge phase (discharge_duration to 2*discharge_duration)
+        t_discharge = np.linspace(discharge_duration, 2 * discharge_duration, 100)
+        
+        time = np.concatenate([t_charge, t_discharge])
+        
         v_min, v_max = voltage_range
-        voltage = v_max - (v_max - v_min) * (time / max_time)  # Linear-like decay
-        voltage += np.random.normal(0, 0.005, len(time))  # Small noise
+        
+        # Quasi-triangular shape
+        # Charge: Nonlinear rise (convex or concave depending on device, using nearly linear for "quasi")
+        charge_voltage = v_min + (v_max - v_min) * (t_charge / discharge_duration) ** 0.95
+        
+        # Discharge: Nonlinear decay
+        # For discharge, time starts from 0 relative to peak
+        rel_discharge_time = (t_discharge - discharge_duration) / discharge_duration
+        discharge_voltage = v_max - (v_max - v_min) * (rel_discharge_time ** 1.05)
+        
+        voltage = np.concatenate([charge_voltage, discharge_voltage])
+        voltage += np.random.normal(0, 0.002, len(time))  # Reduced noise
         voltage = np.clip(voltage, v_min, v_max)
         
         gcd_data[current] = {'time': time, 'voltage': voltage}
         
         # Calculate specific capacity (C/g) - matching MOF Eq. 6
-        Q_s = current * max_time * 3600 / 1000  # Convert to C/g
+        Q_s = current * discharge_duration * 3600 / 1000  # Convert to C/g
         specific_capacities.append(Q_s)
         
         # Calculate specific capacitance (F/g) - matching MOF Eq. 7
@@ -392,18 +408,21 @@ def main():
         with col_gcd:
             fig_gcd = go.Figure()
             
-            # MOF-style colors (professional, distinct)
-            colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
-                     '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22']
+            # Match colors from the image (Red, Green, Purple, Blue, Brown, Cyan, Grey, Light Blue)
+            colors = ['#FF0000', '#008000', '#800080', '#0000FF', '#8B4513', 
+                     '#00FFFF', '#808080', '#ADD8E6', '#000000']
             
             for i, current in enumerate(results['current_densities']):
                 gcd_curve = results['gcd_data'][current]
+                # Cycle colors if more currents than colors
+                color = colors[i % len(colors)]
+                
                 fig_gcd.add_trace(
                     go.Scatter(
                         x=gcd_curve['time'],
                         y=gcd_curve['voltage'],
                         name=f'{current} A/g',
-                        line=dict(color=colors[i], width=2.5),
+                        line=dict(color=color, width=4),  # Thicker lines
                         mode='lines'
                     )
                 )
@@ -419,21 +438,24 @@ def main():
                         x=lit_time,
                         y=lit_voltage,
                         name=f'Ref ({scholar_ref["authors"]})',
-                        line=dict(color='#ff6b6b', width=3, dash='dash'),
+                        line=dict(color='#ff6b6b', width=4, dash='dash'),
                         mode='lines'
                     )
                 )
             
             fig_gcd.update_layout(
                 title=dict(
-                    text=f'(A) GCD Curves: {metal}-{params["ligand"]} Hybrid Device',
-                    font=dict(size=16, color='white', family='Arial, sans-serif')
+                    text=f'<span style="color:red; font-weight:bold; font-size:24px">(A)</span>&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:black; font-weight:bold; font-size:20px">GCD of {metal}-complex</span>',
+                    x=0.01,
+                    y=0.98,
+                    xanchor='left',
+                    yanchor='top'
                 ),
-                xaxis_title='Time (s)',
-                yaxis_title='Voltage (V)',
+                xaxis_title='<b>Time (sec)</b>',
+                yaxis_title='<b>Potential (V)</b>',
                 template='plotly_white',
                 plot_bgcolor='white',
-                paper_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='white',
                 height=500,
                 showlegend=True,
                 legend=dict(
@@ -441,47 +463,50 @@ def main():
                     y=0.98,
                     xanchor='right',
                     yanchor='top',
-                    bgcolor='rgba(255,255,255,0.8)',
+                    bgcolor='white',
                     bordercolor='black',
-                    borderwidth=1
+                    borderwidth=2,
+                    font=dict(size=12, color='black', family='Arial, sans-serif')
                 ),
-                font=dict(size=12, color='white'),
-                hovermode='x unified'
+                font=dict(size=14, color='black', family='Arial, sans-serif'),
+                margin=dict(t=60, l=60, r=40, b=60)
             )
             
             fig_gcd.update_xaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='lightgray',
+                showgrid=False,  # No grid as per image
                 showline=True,
-                linewidth=2,
+                linewidth=3,
                 linecolor='black',
                 mirror=True,
-                ticks='outside',
-                tickfont=dict(color='black')
+                ticks='inside',
+                tickwidth=2,
+                ticklen=8,
+                tickfont=dict(size=14, color='black', family='Arial, sans-serif')
             )
             
             fig_gcd.update_yaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='lightgray',
+                showgrid=False,  # No grid as per image
                 showline=True,
-                linewidth=2,
+                linewidth=3,
                 linecolor='black',
                 mirror=True,
-                ticks='outside',
-                tickfont=dict(color='black'),
+                ticks='inside',
+                tickwidth=2,
+                ticklen=8,
+                tickfont=dict(size=14, color='black', family='Arial, sans-serif'),
                 range=[voltage_min, voltage_max * 1.05]
             )
             
             st.plotly_chart(fig_gcd, use_container_width=True)
             
             # MOF note
-            st.info(f"""
-            **MOF Match:** GCD curves at 9 current densities (0.25-2.25 A/g)  
-            **Potential Window:** 0-{voltage_max}V (hybrid device configuration)  
-            **Max Specific Capacity:** {max_capacity:.2f} C/g @ {results['current_densities'][0]} A/g
-            """)
+            st.markdown(f"""
+            <div style="background: rgba(0, 0, 0, 0.2); border-left: 4px solid #3b82f6; padding: 15px; border-radius: 8px; color: white;">
+                <strong>MOF Match:</strong> GCD curves at 9 current densities (0.25-2.25 A/g)<br>
+                <strong>Potential Window:</strong> 0-{voltage_max}V (hybrid device configuration)<br>
+                <strong>Max Specific Capacity:</strong> {max_capacity:.2f} C/g @ {results['current_densities'][0]} A/g
+            </div>
+            """, unsafe_allow_html=True)
         
         with col_eis:
             fig_eis = go.Figure()
@@ -581,12 +606,14 @@ def main():
             st.plotly_chart(fig_eis, use_container_width=True)
             
             # MOF note
-            st.info(f"""
-            **MOF Match:** EIS before and after 10000 GCD cycles  
-            **Rs:** {results['Rs_before']:.2f}Ω → {results['Rs_after']:.2f}Ω  
-            **Rct:** {results['Rct_before']:.2f}Ω → {results['Rct_after']:.2f}Ω  
-            **Note:** Decreased Rct indicates material stabilization
-            """)
+            st.markdown(f"""
+            <div style="background: rgba(0, 0, 0, 0.2); border-left: 4px solid #3b82f6; padding: 15px; border-radius: 8px; color: white;">
+                <strong>MOF Match:</strong> EIS before and after 10000 GCD cycles <br>
+                <strong>Rs:</strong> {results['Rs_before']:.2f}Ω → {results['Rs_after']:.2f}Ω <br>
+                <strong>Rct:</strong> {results['Rct_before']:.2f}Ω → {results['Rct_after']:.2f}Ω <br>
+                <strong>Note:</strong> Decreased Rct indicates material stabilization
+            </div>
+            """, unsafe_allow_html=True)
         
         # Performance comparison table
         st.markdown("---")
